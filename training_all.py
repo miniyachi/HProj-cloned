@@ -223,10 +223,23 @@ def train_nn_solver(data, args, save_dir):
     solver_net.to(DEVICE)
     solver_opt = optim.Adam(solver_net.parameters(), lr=lr, weight_decay=1e-5)
     solver_shce = optim.lr_scheduler.StepLR(solver_opt, step_size=lr_decay_step, gamma=lr_decay)
-    try:
-        homeo_mapping = torch.load(os.path.join(save_dir, 'mapping.pth'), map_location=DEVICE)
-    except:
+    
+    # Load homeomorphic mapping if it exists and projection requires it
+    mapping_path = os.path.join(save_dir, 'mapping.pth')
+    if os.path.exists(mapping_path):
+        try:
+            homeo_mapping = torch.load(mapping_path, map_location=DEVICE, weights_only=False)
+            print(f"Loaded homeomorphic mapping from {mapping_path}")
+        except Exception as e:
+            print(f"WARNING: Failed to load mapping from {mapping_path}: {e}")
+            homeo_mapping = None
+    else:
+        print(f"WARNING: Mapping file not found at {mapping_path}")
+        if 'H_Bis' in args['algoType'] or 'G_Bis' in args['algoType']:
+            print(f"ERROR: {args['algoType']} requires homeomorphic mapping but it wasn't found!")
+            print("Make sure mapping_para['training'] = True and training completed successfully.")
         homeo_mapping = None
+    
     stats = {}
     solver_net.train()
 
@@ -329,8 +342,8 @@ def test_nn_solver(data, args, model_save_dir, result_save_dir):
     Xtest = data.testX.to(DEVICE)
     Ytest = data.testY.squeeze().to(DEVICE)
 
-    homeo_mapping = torch.load(os.path.join(model_save_dir, 'mapping.pth'), map_location=DEVICE)
-    solver_net = torch.load(os.path.join(model_save_dir, 'solver_net.pth'), map_location=DEVICE)
+    homeo_mapping = torch.load(os.path.join(model_save_dir, 'mapping.pth'), map_location=DEVICE, weights_only=False)
+    solver_net = torch.load(os.path.join(model_save_dir, 'solver_net.pth'), map_location=DEVICE, weights_only=False)
     epoch_stats = {}
     solver_net.eval()
     eval_solution(data, Xtest, Ytest, solver_net, homeo_mapping, args, 'test', epoch_stats)
@@ -360,7 +373,8 @@ def test_nn_solver(data, args, model_save_dir, result_save_dir):
 
 def eval_solution(data, X, Ytarget, solver_net, homeo_mapping, args, prefix, stats):
     solver_net.eval()
-    homeo_mapping.eval()
+    if homeo_mapping is not None:
+        homeo_mapping.eval()
     ### NN solution prediction
     raw_start_time = time.time()
     with torch.no_grad():
@@ -387,9 +401,19 @@ def eval_solution(data, X, Ytarget, solver_net, homeo_mapping, args, prefix, sta
         cor_start_time = time.time()
         if args['proj_para']['useTestCorr']:
             if 'H_Bis' in args['algoType']:
-                Yproj, steps = homeo_bisection(homeo_mapping, data, args, Y_pred[infeasible_index], X[infeasible_index])
+                if homeo_mapping is None:
+                    print("WARNING: H_Bis projection requested but homeomorphic mapping not available!")
+                    print("Falling back to no correction.")
+                    Yproj = Y_pred[infeasible_index]
+                else:
+                    Yproj, steps = homeo_bisection(homeo_mapping, data, args, Y_pred[infeasible_index], X[infeasible_index])
             elif 'G_Bis' in args['algoType']:
-                Yproj, steps = gauge_bisection(homeo_mapping, data, args, Y_pred[infeasible_index], X[infeasible_index])
+                if homeo_mapping is None:
+                    print("WARNING: G_Bis projection requested but homeomorphic mapping not available!")
+                    print("Falling back to no correction.")
+                    Yproj = Y_pred[infeasible_index]
+                else:
+                    Yproj, steps = gauge_bisection(homeo_mapping, data, args, Y_pred[infeasible_index], X[infeasible_index])
             elif 'D_Proj' in args['algoType']:
                 Yproj, steps = diff_projection(data, X[infeasible_index], Y[infeasible_index], args)
             elif 'Proj' in args['algoType']:

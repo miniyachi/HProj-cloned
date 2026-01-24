@@ -79,9 +79,10 @@ class BaseProblem:
         return scale_Y
 
     def scale_partial(self, X, Y):
-        # lower_bound = (self.L[self.partial_vars]).view(1, -1)
-        # upper_bound = (self.U[self.partial_vars]).view(1, -1)
-        scale_Y = Y * (self.U - self.L) + self.L
+        # Fixed: Use partial variable bounds for scaling
+        lower_bound = self.L[self.partial_vars]
+        upper_bound = self.U[self.partial_vars]
+        scale_Y = Y * (upper_bound - lower_bound) + lower_bound
         return scale_Y
 
     def scale(self, X, Y):
