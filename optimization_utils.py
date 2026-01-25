@@ -742,7 +742,13 @@ class NonconvexProblem(QPProblem):
         minimize_y 1/2 * y^T Q y + p^T sin(y)
         s.t.       Ay =  x
                    Gy <= h
+                   L<= y <=U
     """
+    def __init__(self, dataset, test_size):
+        # Call parent QPProblem.__init__ which handles all the standard initialization
+        super().__init__(dataset, test_size)
+        # Parent class already handles Q, p, A, G, h, X, Y, L, U, and train/test split
+        # No additional initialization needed for nonconvex - only obj_fn differs
 
     def __str__(self):
         return 'NonconvexProblem-{}-{}-{}-{}'.format(

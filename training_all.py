@@ -23,7 +23,7 @@ defaults = config()
 def main():
     args = config()
     # run_instance(args)
-    for prob in ['qp', 'socp', 'convex_qcqp', 'sdp', 'acopf']:
+    for prob in ['qp', 'socp', 'cvx_qcqp', 'sdp', 'acopf']:
         if prob == 'acopf':
             for size in [[30, 10000], [118, 20000]]:
                 args['opfSize'] = size
@@ -54,13 +54,13 @@ def load_instance(args):
         with open(filepath, 'rb') as f:
             dataset = pickle.load(f)
         data = QPProblem(dataset, test_size)
-    elif prob_type in ['convex_qcqp']:
+    elif prob_type in ['cvx_qcqp']:
         filepath = os.path.join('datasets', prob_type, "random_{}_{}_dataset_var{}_ineq{}_eq{}_ex{}".format(
             seed, prob_type, args['probSize'][0], args['probSize'][1], args['probSize'][2], args['probSize'][3]))
         with open(filepath, 'rb') as f:
             dataset = pickle.load(f)
         data = QCQPProbem(dataset, test_size)
-    elif prob_type in ['nonconvex']:
+    elif prob_type in ['nonconvex', 'noncvx']:
         filepath = os.path.join('datasets', prob_type, "random_{}_{}_dataset_var{}_ineq{}_eq{}_ex{}".format(
             seed, prob_type, args['probSize'][0], args['probSize'][1], args['probSize'][2], args['probSize'][3]))
         with open(filepath, 'rb') as f:
@@ -423,6 +423,7 @@ def eval_solution(data, X, Ytarget, solver_net, homeo_mapping, args, prefix, sta
     num_infeasible_prediction = Y_pred_infeasible.shape[0]
     Ycorr = Y.detach().clone()
     print(f'num of infeasible instance {Y_pred_infeasible.shape[0]}')
+    Proj_time = 0.0  # Initialize projection time
     if num_infeasible_prediction > 0:
         cor_start_time = time.time()
         if args['proj_para']['useTestCorr']:
@@ -452,7 +453,7 @@ def eval_solution(data, X, Ytarget, solver_net, homeo_mapping, args, prefix, sta
                 Yproj = Y_pred_infeasible
             Ycorr[infeasible_index] = Yproj
         cor_end_time = time.time()
-    Proj_time = cor_end_time - cor_start_time
+        Proj_time = cor_end_time - cor_start_time
 
     make_prefix = lambda x: "{}_{}".format(prefix, x)
     dict_agg(stats, make_prefix('time'), Proj_time + NN_pred_time, op='sum')
