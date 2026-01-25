@@ -5,6 +5,8 @@ import numpy as np
 import pickle
 import time
 import os
+import random
+from scipy.stats.mstats import gmean
 
 from default_args import *
 from flows_utils import *
@@ -128,6 +130,18 @@ def run_instance(args):
 
 
 def train_mdh_mapping(data, args, save_dir):
+    # Set random seeds for reproducibility
+    if 'train_seed' in args:
+        print(f"Setting random seed to {args['train_seed']} for mapping training.")
+        torch.manual_seed(args['train_seed'])
+        np.random.seed(args['train_seed'])
+        random.seed(args['train_seed'])
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(args['train_seed'])
+            torch.cuda.manual_seed_all(args['train_seed'])
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+    
     paras = args['mapping_para']
     ### input pparameters --> output solutions
     t_tensor = data.X.squeeze()
@@ -195,6 +209,18 @@ def test_mdh_mapping(data, save_dir, args):
 
 
 def train_nn_solver(data, args, save_dir):
+    # Set random seeds for reproducibility
+    if 'train_seed' in args:
+        print(f"Setting random seed to {args['train_seed']} for NN solver training.")
+        torch.manual_seed(args['train_seed'])
+        np.random.seed(args['train_seed'])
+        random.seed(args['train_seed'])
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(args['train_seed'])
+            torch.cuda.manual_seed_all(args['train_seed'])
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+    
     lr = args['nn_para']['lr']
     nepochs = args['nn_para']['total_iteration']
     batch_size = args['nn_para']['batch_size']
@@ -485,23 +511,75 @@ def eval_solution(data, X, Ytarget, solver_net, homeo_mapping, args, prefix, sta
     dict_agg(stats, make_prefix('raw_ineq_mean'), torch.mean(raw_ineq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('raw_ineq_sum'), torch.sum(raw_ineq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('raw_ineq_num_viol_0'), torch.sum(raw_ineq_vio > eps_converge, dim=1).numpy())
+    dict_agg(stats, make_prefix('raw_ineq_err_gmean'), gmean(np.maximum(raw_ineq_vio.numpy(), 1e-16), axis=1))
+    dict_agg(stats, make_prefix('raw_ineq_err_nviol'), torch.sum(raw_ineq_vio > 1e-4, dim=1).numpy())
+    
     dict_agg(stats, make_prefix('raw_eq_max'), torch.max(raw_eq_vio, dim=1)[0].numpy())
     dict_agg(stats, make_prefix('raw_eq_mean'), torch.mean(raw_eq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('raw_eq_sum'), torch.sum(raw_eq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('raw_eq_num_viol_0'), torch.sum(raw_eq_vio > eps_converge, dim=1).numpy())
+    dict_agg(stats, make_prefix('raw_eq_err_gmean'), gmean(np.maximum(raw_eq_vio.numpy(), 1e-16), axis=1))
+    dict_agg(stats, make_prefix('raw_eq_err_nviol'), torch.sum(raw_eq_vio > 1e-4, dim=1).numpy())
+    
     dict_agg(stats, make_prefix('raw_vio_instance'), ( (torch.max(raw_ineq_vio, dim=1)[0] > eps_converge) |
                                                         (torch.max(raw_eq_vio, dim=1)[0] > eps_converge) ).numpy())
+    
+    # Check if raw instance is feasible for multiple thresholds
+    for tol in [1e-1, 1e-2, 1e-4]:
+        ineq_satisfied = torch.all(raw_ineq_vio < tol, dim=1)
+        eq_satisfied = torch.all(raw_eq_vio < tol, dim=1)
+        is_feasible = (ineq_satisfied & eq_satisfied).float()
+        tol_str = f"{tol:.0e}".replace('-0', '-')
+        dict_agg(stats, make_prefix(f'raw_is_feasible_{tol_str}'), is_feasible.numpy())
 
     dict_agg(stats, make_prefix('cor_ineq_max'), torch.max(cor_ineq_vio, dim=1)[0].numpy())
     dict_agg(stats, make_prefix('cor_ineq_mean'), torch.mean(cor_ineq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('cor_ineq_sum'), torch.sum(cor_ineq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('cor_ineq_num_viol_0'), torch.sum(cor_ineq_vio > eps_converge, dim=1).numpy())
+    dict_agg(stats, make_prefix('cor_ineq_err_gmean'), gmean(np.maximum(cor_ineq_vio.numpy(), 1e-16), axis=1))
+    dict_agg(stats, make_prefix('cor_ineq_err_nviol'), torch.sum(cor_ineq_vio > 1e-4, dim=1).numpy())
+    
     dict_agg(stats, make_prefix('cor_eq_max'), torch.max(cor_eq_vio, dim=1)[0].numpy())
     dict_agg(stats, make_prefix('cor_eq_mean'), torch.mean(cor_eq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('cor_eq_sum'), torch.sum(cor_eq_vio, dim=1).numpy())
     dict_agg(stats, make_prefix('cor_eq_num_viol_0'), torch.sum(cor_eq_vio > eps_converge, dim=1).numpy())
+    dict_agg(stats, make_prefix('cor_eq_err_gmean'), gmean(np.maximum(cor_eq_vio.numpy(), 1e-16), axis=1))
+    dict_agg(stats, make_prefix('cor_eq_err_nviol'), torch.sum(cor_eq_vio > 1e-4, dim=1).numpy())
+    
     dict_agg(stats, make_prefix('cor_vio_instance'), ((torch.max(cor_ineq_vio, dim=1)[0]> eps_converge) |
                                                       (torch.max(cor_eq_vio, dim=1)[0] > eps_converge)).numpy())
+    
+    # Check if corrected instance is feasible for multiple thresholds
+    for tol in [1e-1, 1e-2, 1e-4]:
+        ineq_satisfied = torch.all(cor_ineq_vio < tol, dim=1)
+        eq_satisfied = torch.all(cor_eq_vio < tol, dim=1)
+        is_feasible = (ineq_satisfied & eq_satisfied).float()
+        tol_str = f"{tol:.0e}".replace('-0', '-')
+        dict_agg(stats, make_prefix(f'cor_is_feasible_{tol_str}'), is_feasible.numpy())
+    
+    # Compute optimality gap if optimal values are available
+    if data.has_opt_vals and prefix == 'test':
+        # print(f"[DEBUG] Computing opt_gap: has_opt_vals={data.has_opt_vals}, prefix={prefix}")
+        opt_vals_cpu = data.testOptvals.detach().cpu() if hasattr(data, 'testOptvals') and data.testOptvals is not None else None
+        # print(f"[DEBUG] opt_vals_cpu is None: {opt_vals_cpu is None}, len check: {len(opt_vals_cpu) if opt_vals_cpu is not None else 'N/A'} vs {len(Ycor_obj)}")
+        if opt_vals_cpu is not None and len(opt_vals_cpu) == len(Ycor_obj):
+            # Compute optimality gap: (predicted_obj - optimal_obj) / |optimal_obj|
+            opt_gap_raw = torch.abs(Y_obj - opt_vals_cpu) / torch.abs(opt_vals_cpu)
+            opt_gap_cor = torch.abs(Ycor_obj - opt_vals_cpu) / torch.abs(opt_vals_cpu)
+            
+            # print(f"[DEBUG] opt_gap_raw stats: min={opt_gap_raw.min():.6f}, max={opt_gap_raw.max():.6f}, mean={opt_gap_raw.mean():.6f}")
+            # print(f"[DEBUG] opt_gap_cor stats: min={opt_gap_cor.min():.6f}, max={opt_gap_cor.max():.6f}, mean={opt_gap_cor.mean():.6f}")
+            
+            dict_agg(stats, make_prefix('raw_opt_gap'), opt_gap_raw.numpy())
+            dict_agg(stats, make_prefix('cor_opt_gap'), opt_gap_cor.numpy())
+            
+            # Count near-optimal solutions (within 1e-4)
+            dict_agg(stats, make_prefix('raw_nopt'), (opt_gap_raw < 1e-4).float().numpy())
+            dict_agg(stats, make_prefix('cor_nopt'), (opt_gap_cor < 1e-4).float().numpy())
+    else:
+        # print(f"[DEBUG] NOT computing opt_gap: has_opt_vals={getattr(data, 'has_opt_vals', 'ATTR_MISSING')}, prefix={prefix}")
+        pass
+    
     return stats
 
 

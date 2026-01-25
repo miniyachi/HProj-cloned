@@ -24,6 +24,14 @@ class BaseProblem:
         self.device = DEVICE
         # self.valid_frac = valid_frac
         # self.test_frac = test_frac
+        
+        # Load optimal values if available
+        if 'opt_vals' in dataset and dataset['opt_vals'] is not None:
+            self.opt_vals = torch.tensor(dataset['opt_vals'])
+            self.has_opt_vals = True
+        else:
+            self.opt_vals = None
+            self.has_opt_vals = False
 
     def eq_grad(self, X, Y):
         grad_list = []
@@ -141,10 +149,24 @@ class QPProblem(BaseProblem):
         self.A_partial = self.A[:, self.partial_vars]
         self.A_other_inv = torch.inverse(self.A[:, self.other_vars])
 
-        self.trainX = self.X[:-test_size]
+        # Split to match our QCQP class: exclude validation set (middle 833 samples)
+        # For 10000 examples with test_frac=0.0833: train=[0:8334], valid=[8334:9167], test=[9167:10000]
+        # We skip validation, so: train=[0:8334], test=[9167:10000]
+        valid_size = int(self.num * 0.0833)  # 833 for 10000 examples
+        train_end = self.num - test_size - valid_size
+        
+        self.trainX = self.X[:train_end]
         self.testX = self.X[-test_size:]
-        self.trainY = self.Y[:-test_size]
+        self.trainY = self.Y[:train_end]
         self.testY = self.Y[-test_size:]
+        
+        # Split optimal values if available
+        if self.has_opt_vals:
+            self.trainOptvals = self.opt_vals[:train_end]
+            self.testOptvals = self.opt_vals[-test_size:]
+        else:
+            self.trainOptvals = None
+            self.testOptvals = None
 
     def __str__(self):
         return 'QPProblem-{}-{}-{}-{}'.format(
