@@ -92,7 +92,12 @@ def load_instance(args):
             except AttributeError:
                 pass
 
-    result_save_dir = os.path.join('results', prob_type, str(data), args['algoType'])
+    # Include train_seed in result path if specified to avoid overwriting
+    if 'train_seed' in args and args['train_seed'] is not None:
+        result_save_dir = os.path.join('results', prob_type, str(data), args['algoType'], f'seed{args["train_seed"]}')
+    else:
+        result_save_dir = os.path.join('results', prob_type, str(data), args['algoType'])
+    
     model_save_dir = os.path.join('models', prob_type, str(data), args['predType'])
     if not os.path.exists(model_save_dir):
         os.makedirs(model_save_dir)
